@@ -1,7 +1,6 @@
 THIS PROGRAM IS CURRENTLY IN DEVELOPMENT AND STILL BUGGY
 
-The Rave.DJ Bot is able to automate the process of typing and downloading two song mash-ups either from the user manually typing in the URLs to the script
-or via a text file which the program can read to create the two song mash-ups.
+The Rave.DJ Bot is able to automate the process of typing and downloading two song mash-ups or playlists from text files 
 
 Features:
 
