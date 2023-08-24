@@ -35,6 +35,10 @@ class RaveDJ_Downloader:
         return bool(pattern.match(url))
 
     @staticmethod
+    def verify_links(url):
+        return RaveDJ_Downloader.is_valid_spotify_url(url) or RaveDJ_Downloader.is_valid_youtube_url(url)
+
+    @staticmethod
     def clean_youtube_url(url):
         match = re.match(r'(https://www\.youtube\.com/watch\?v=[\w-]{11})', url)
         return match.group(1) if match else None
@@ -81,9 +85,12 @@ class RaveDJ_Downloader:
             return True
         return False
 
-    def check_cookies(self):
+    def get_site(self):
         driver = self.driver
         driver.get('https://rave.dj/mix')
+
+    def check_cookies(self):
+        driver = self.driver
 
         try:
             cookies_page = WebDriverWait(driver, 5).until(
@@ -95,72 +102,88 @@ class RaveDJ_Downloader:
         finally:
             return
 
-    def process_mashup(self, song1=None, song2=None):
+    def grab_urls(self):
+        # Get a list of all txt files in the current directory
+        txt_files = glob.glob("*.txt")
 
-        # Refresh itself
+        if not txt_files:  # If there are no txt files in the directory
+            print("No .txt files found in the current directory.")
+            return
+
+        for filename in txt_files:
+            with open(filename, 'r') as f:
+                urls = f.readlines()
+
+                index = 0
+                while index < len(urls):
+                    clean_url = urls[index].strip()  # Remove the newline character
+
+                    if "rave.dj" in clean_url:
+                        try:
+                            self.download_video(clean_url)
+                        except Exception:
+                            print(
+                                f"Error: Could not download the song from the URL {clean_url}. The song might not have been processed.")
+
+                    if self.verify_links(clean_url):
+                        track = self.clean_youtube_url(clean_url)
+
+                        self.paste_tracks(track)
+
+                    if not self.verify_links(clean_url):
+                        print('Invalid link. Skipping...')
+
+                    # move to next url
+                    index += 1  # Move to the next URL
+
+                # Wait till track-list is updated
+                time.sleep(5)
+
+                # Proceed to do mash-up
+                self.process_mix()
+
+        print("All urls have been reviewed. Program will terminate.")
+
+        self.driver.quit()
+
+    def paste_tracks(self, url):
         driver = self.driver
-        driver.get('https://rave.dj/mix')
 
-        # Request links if not provided
-        if song1 is None:
-            song1 = input("Enter the first Youtube or Spotify Link: ")
-        if song2 is None:
-            song2 = input("Enter the second Youtube or Spotify Link: ")
+        # Initial count of the songs present in the tracklist
+        current_tracks = driver.find_elements(By.XPATH, "//div[contains(@class, 'track-title')]")
+        initial_track_count = len(current_tracks)
 
-        track_count = 0  # Keep track of the number of tracks
+        # Find search bar
+        search = driver.find_element(By.CLASS_NAME, 'search-input')
 
-        songs_list = [song1, song2]
+        # Type in song links
+        search.send_keys(url)
+        search.send_keys(Keys.RETURN)
 
-        for song in songs_list:
-            # Initialize the URL to process
-            song_to_process = None
+        # Wait for a new track to be added
+        try:
+            WebDriverWait(driver, 10).until(
+                lambda d: len(d.find_elements(By.XPATH, "//div[contains(@class, 'track-title')]")) > initial_track_count
+            )
 
-            # Check if it's a valid YouTube URL
-            if RaveDJ_Downloader.is_valid_youtube_url(song):
-                song_to_process = RaveDJ_Downloader.clean_youtube_url(song)
-            elif RaveDJ_Downloader.is_valid_spotify_url(song):
-                if RaveDJ_Downloader.check_spotify_login(driver):
-                    print(
-                        "Redirected to Spotify. Please ensure you are logged in to Spotify to continue using Spotify links.")
-                    return None
-                song_to_process = song  # No cleaning required for Spotify URLs as of now
+            # Check the total number of tracks now
+            total_tracks = driver.find_elements(By.XPATH, "//div[contains(@class, 'track-title')]")
+            new_track_count = len(total_tracks)
 
-            # If song_to_process is still None, it means the song URL is invalid
-            if not song_to_process:
-                print("Invalid song URL:", song)
-                continue  # Skip to the next iteration
+            # If the count has increased, it means the new track was added
+            if new_track_count > initial_track_count:
+                print("New track added:", total_tracks[-1].text)
+            else:
+                print(f"Failed to add the track from URL: {url}")
 
-            # Find search bar
-            search = driver.find_element(By.CLASS_NAME, 'search-input')
+        except Exception as e:
+            print(f"Track was not detected in the tracklist from URL: {url}. Error message: {str(e)}")
 
-            # Type in song links
-            search.send_keys(song_to_process)
-            search.send_keys(Keys.RETURN)
+    def process_mix(self):
 
-            # Wait for a new track to appear
-            try:
-                WebDriverWait(driver, 5).until(
-                    lambda d: len(d.find_elements(By.XPATH, "//div[contains(@class, 'track-title')]")) > track_count
-                )
+        driver = self.driver
 
-                songs = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.CLASS_NAME, 'tracklist'))
-                )
-
-                track_titles_xpath = ".//div[contains(@class, 'track-title')]"
-                track_titles = songs.find_elements(By.XPATH, track_titles_xpath)
-
-                # Print track
-                print(track_titles[-1].text)
-
-                # Update the track count for the next iteration
-                track_count = len(track_titles)
-
-            except Exception as e:
-                print(f"Error while processing song {song}. Error message: {str(e)}")
-
-        # Wait till track-list is updated
-        time.sleep(5)
+        print("Mix is now being processed. This can take up to 15 minutes. ")
 
         # Process Mash-Up
         create_btn_css_selector = "button.mix-button.mix-floating-footer.pulsing-glow"
@@ -182,40 +205,6 @@ class RaveDJ_Downloader:
             print("Mash-up did not load within 15 minutes, saving URL to text file.")
             with open('failed_urls.txt', 'a') as file:
                 file.write(current_url + '\n')
-
-    def process_bulk_mashups(self):
-        # Get a list of all txt files in the current directory
-        txt_files = glob.glob("*.txt")
-
-        if not txt_files:  # If there are no txt files in the directory
-            print("No .txt files found in the current directory.")
-            return
-
-        for filename in txt_files:
-            with open(filename, 'r') as f:
-                urls = f.readlines()
-
-                index = 0
-                while index < len(urls):
-                    clean_url = urls[index].strip()  # Remove the newline character
-
-                    if "rave.dj" in clean_url:
-                        try:
-                            self.download_video(clean_url)
-                        except:
-                            print(
-                                f"Error: Could not download the song from the URL {clean_url}. The song might not have been processed.")
-                        index += 1  # Move to the next URL
-                    else:
-                        if ".com" in clean_url:
-                            self.process_mashup(song1=clean_url, song2=urls[index + 1].strip())
-                            index += 2  # Skip the next URL since it has already been used
-                        else:
-                            index += 1  # If it's not a recognizable URL, simply move to the next
-
-        print("All urls have been reviewed. Program will terminate.")
-
-        self.driver.quit()
 
     def close(self):
         self.driver.quit()

@@ -5,16 +5,10 @@ downloader = RaveDJ_Downloader()
 
 print("Welcome to RaveDJ Downloader! \n")
 
+print("Make sure you are login to your spotify account prior to using this script in order to use their associated links! \n")
+
+downloader.get_site()
+
 downloader.check_cookies()
 
-prompt1 = input('Manual input or text?. Use characters S/B. \n')
-
-if prompt1 == 'S':
-    downloader.process_mashup()
-
-elif prompt1 == 'B':
-    downloader.process_bulk_mashups()
-
-else:
-    print("Please enter a valid response. Program will terminate")
-    downloader.close()
+downloader.grab_urls()
