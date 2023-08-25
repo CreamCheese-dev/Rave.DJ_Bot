@@ -17,6 +17,8 @@ class RaveDJ_Downloader:
     def __init__(self):
         self.driver = webdriver.Chrome()
 
+    # --------------------- UTILITY STATIC METHODS ---------------------
+
     @staticmethod
     def is_valid_youtube_url(url):
         # Matches both individual video links and links with playlist parameters
@@ -39,9 +41,12 @@ class RaveDJ_Downloader:
         return RaveDJ_Downloader.is_valid_spotify_url(url) or RaveDJ_Downloader.is_valid_youtube_url(url)
 
     @staticmethod
-    def clean_youtube_url(url):
-        match = re.match(r'(https://www\.youtube\.com/watch\?v=[\w-]{11})', url)
-        return match.group(1) if match else None
+    def clean_url(url):
+        if "youtube" in url:
+            match = re.match(r'(https://www\.youtube\.com/watch\?v=[\w-]{11})', url)
+            if match:
+                return match.group(1)
+        return url
 
     @staticmethod
     def download_video(url):
@@ -79,11 +84,7 @@ class RaveDJ_Downloader:
 
         print("Video downloaded successfully!")
 
-    @staticmethod
-    def check_spotify_login(driver):
-        if "spotify.com" in driver.current_url:
-            return True
-        return False
+    # --------------------- SITE INTERACTION METHODS ---------------------
 
     def get_site(self):
         driver = self.driver
@@ -131,7 +132,7 @@ class RaveDJ_Downloader:
                             print(
                                 f"Error: Could not download the song from the URL {clean_url}. The song might not have been processed.")
                     elif self.verify_links(clean_url):
-                        track = self.clean_youtube_url(clean_url)
+                        track = self.clean_url(clean_url)
                         self.paste_tracks(track)
 
                         # If in "S" mode, increment our successful_url_count
@@ -144,7 +145,7 @@ class RaveDJ_Downloader:
                                 self.process_mix()
                                 successful_url_count = 0  # Reset the counter
 
-                                self.get_site() # refresh site
+                                self.get_site()  # refresh site
                     else:
                         print('Invalid link. Skipping...')
 
@@ -161,7 +162,6 @@ class RaveDJ_Downloader:
 
     def paste_tracks(self, url):
 
-
         driver = self.driver
 
         # Initial count of the songs present in the tracklist
@@ -172,6 +172,7 @@ class RaveDJ_Downloader:
         search = driver.find_element(By.CLASS_NAME, 'search-input')
 
         # Type in song links
+        search.clear()
         search.send_keys(url)
         search.send_keys(Keys.RETURN)
 
@@ -198,8 +199,6 @@ class RaveDJ_Downloader:
 
         driver = self.driver
 
-        print("Mix is now being processed. This can take up to 15 minutes. ")
-
         # Process Mash-Up
         create_btn_css_selector = "button.mix-button.mix-floating-footer.pulsing-glow"
         create_btn = driver.find_element(By.CSS_SELECTOR, create_btn_css_selector)
@@ -208,6 +207,8 @@ class RaveDJ_Downloader:
         # Wait till url updated
         time.sleep(5)
         current_url = driver.current_url
+
+        print("Mix is now being processed. This can take up to 15 minutes. ")
 
         try:
             # Wait until processed
