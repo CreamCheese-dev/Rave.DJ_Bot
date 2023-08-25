@@ -103,6 +103,10 @@ class RaveDJ_Downloader:
             return
 
     def grab_urls(self):
+
+        print("Two song Mash-Up or Playlist? \n")
+        type_of_mashup = input("Enter the character 'S' or 'P'. \n")
+
         # Get a list of all txt files in the current directory
         txt_files = glob.glob("*.txt")
 
@@ -115,6 +119,8 @@ class RaveDJ_Downloader:
                 urls = f.readlines()
 
                 index = 0
+                successful_url_count = 0  # Counter to keep track of successfully verified and pasted URLs
+
                 while index < len(urls):
                     clean_url = urls[index].strip()  # Remove the newline character
 
@@ -124,29 +130,38 @@ class RaveDJ_Downloader:
                         except Exception:
                             print(
                                 f"Error: Could not download the song from the URL {clean_url}. The song might not have been processed.")
-
-                    if self.verify_links(clean_url):
+                    elif self.verify_links(clean_url):
                         track = self.clean_youtube_url(clean_url)
-
                         self.paste_tracks(track)
 
-                    if not self.verify_links(clean_url):
+                        # If in "S" mode, increment our successful_url_count
+                        if type_of_mashup.lower() == 's':
+                            successful_url_count += 1
+
+                            # If we've successfully processed 2 URLs, process the mix and reset the counter
+                            if successful_url_count == 2:
+                                time.sleep(5)  # Wait till track-list is updated
+                                self.process_mix()
+                                successful_url_count = 0  # Reset the counter
+
+                                self.get_site() # refresh site
+                    else:
                         print('Invalid link. Skipping...')
 
-                    # move to next url
-                    index += 1  # Move to the next URL
+                    # Always move to next url
+                    index += 1
 
-                # Wait till track-list is updated
-                time.sleep(5)
-
-                # Proceed to do mash-up
-                self.process_mix()
+                # If it's "P" mode, process the mashup after all URLs are pasted
+                if type_of_mashup.lower() == 'p':
+                    time.sleep(5)  # Wait till track-list is updated
+                    self.process_mix()
 
         print("All urls have been reviewed. Program will terminate.")
-
         self.driver.quit()
 
     def paste_tracks(self, url):
+
+
         driver = self.driver
 
         # Initial count of the songs present in the tracklist
