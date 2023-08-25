@@ -11,6 +11,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+# CONSTANTS
+TIME_OUT = 720
+POLL_FREQ = 5
 
 class RaveDJ_Downloader:
 
@@ -97,11 +100,24 @@ class RaveDJ_Downloader:
             cookies_page = WebDriverWait(driver, 5).until(
                 EC.presence_of_element_located((By.ID, 'qc-cmp2-ui'))
             )
-            print("Accepting cookies to proceed with page.")
+            print("Accepting cookies to proceed with page. \n")
             button = cookies_page.find_element(By.CLASS_NAME, 'css-47sehv')
             button.click()
         finally:
             return
+
+    def spotify_tab(self):
+        driver = self.driver
+
+        original_tab_handle = driver.current_window_handle
+
+        driver.execute_script("window.open('');")
+
+        driver.switch_to.window(driver.window_handles[-1])
+
+        driver.get("https://accounts.spotify.com/en/login")
+
+        driver.switch_to.window(original_tab_handle)
 
     def grab_urls(self):
 
@@ -158,7 +174,7 @@ class RaveDJ_Downloader:
                     self.process_mix()
 
         print("All urls have been reviewed. Program will terminate.")
-        self.driver.quit()
+        self.close()
 
     def paste_tracks(self, url):
 
@@ -203,22 +219,22 @@ class RaveDJ_Downloader:
         create_btn_css_selector = "button.mix-button.mix-floating-footer.pulsing-glow"
         create_btn = driver.find_element(By.CSS_SELECTOR, create_btn_css_selector)
         create_btn.click()
+        print("Mix is entering the queue. \n")
 
         # Wait till url updated
-        time.sleep(5)
+        time.sleep(3)
         current_url = driver.current_url
-
-        print("Mix is now being processed. This can take up to 15 minutes. ")
 
         try:
             # Wait until processed
-            wait = WebDriverWait(driver, 750, poll_frequency=5)  # Check every 5 second
+            print("Please wait, this could take up to 15 minutes. \n")
+            wait = WebDriverWait(driver, TIME_OUT, poll_frequency= POLL_FREQ)  # Check every 5 second
             foreground_player_element = wait.until(EC.presence_of_element_located((By.ID, 'ForegroundPlayer')))
-            print("Mash-up has been successfully been processed!, Downloading Now...")
+            print("Mash-up has been successfully processed!, Downloading Now...")
             RaveDJ_Downloader.download_video(current_url)
 
         except TimeoutException:
-            print("Mash-up did not load within 15 minutes, saving URL to text file.")
+            print("Mash-up did not load within 15 minutes, saving Rave.DJ URL to text file.")
             with open('failed_urls.txt', 'a') as file:
                 file.write(current_url + '\n')
 
