@@ -10,8 +10,11 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.expected_conditions import url_changes
+
 
 # CONSTANTS
+SHORT_TIME_OUT = 30
 TIME_OUT = 720
 POLL_FREQ = 5
 
@@ -51,6 +54,8 @@ class RaveDJ_Downloader:
                 return match.group(1)
         return url
 
+    import time
+
     @staticmethod
     def download_video(url):
         # Split the URL and extract the necessary part
@@ -58,15 +63,26 @@ class RaveDJ_Downloader:
         # Create the real URL to call the API
         real_url = f"https://api.red.wemesh.ca/mashups/{url_parts[3]}"
 
-        # Make a GET request to the API
-        response = requests.get(real_url)
-        response_json = response.json()
+        attempts = 0
+        max_attempts = 5  # Set a limit to the number of attempts
+        video_url = None
 
-        # Check if the video URL is present
-        video_url = response_json['data']['videos'].get('max')
+        while attempts < max_attempts:
+            # Make a GET request to the API
+            response = requests.get(real_url)
+            response_json = response.json()
+
+            if 'data' in response_json and 'videos' in response_json['data']:
+                video_url = response_json['data']['videos'].get('max')
+                if video_url:
+                    break
+            else:
+                print("Data not yet available. Waiting...")
+                time.sleep(5)  # Wait for 5 seconds before next attempt
+                attempts += 1
+
         if video_url is None:
-            print("Wait for the video to finish!")
-            return
+            print("Failed to retrieve video URL after multiple attempts. Exiting.")
 
         print(f"MP4 URL: {video_url}")
 
@@ -144,9 +160,9 @@ class RaveDJ_Downloader:
                     if "rave.dj" in clean_url:
                         try:
                             self.download_video(clean_url)
-                        except Exception:
+                        except Exception as e:
                             print(
-                                f"Error: Could not download the song from the URL {clean_url}. The song might not have been processed.")
+                                f"Error: Could not download the song from the URL {clean_url}. The song might not have been processed. Reason: {e} \n")
                     elif self.verify_links(clean_url):
                         track = self.clean_url(clean_url)
                         self.paste_tracks(track)
@@ -212,31 +228,42 @@ class RaveDJ_Downloader:
             print(f"Track was not detected in the tracklist from URL: {url}. Error message: {str(e)}")
 
     def process_mix(self):
-
         driver = self.driver
+        initial_url = driver.current_url
+        retries = 1  # Number of attempts
 
-        # Process Mash-Up
-        create_btn_css_selector = "button.mix-button.mix-floating-footer.pulsing-glow"
-        create_btn = driver.find_element(By.CSS_SELECTOR, create_btn_css_selector)
-        create_btn.click()
-        print("Mix is entering the queue. \n")
+        while retries >= 0:
+            # Process Mash-Up
+            create_btn_css_selector = "button.mix-button.mix-floating-footer.pulsing-glow"
+            create_btn = driver.find_element(By.CSS_SELECTOR, create_btn_css_selector)
+            create_btn.click()
 
-        # Wait till url updated
-        time.sleep(3)
-        current_url = driver.current_url
+            try:
+                # Wait until URL changes
+                wait = WebDriverWait(driver, SHORT_TIME_OUT)
+                wait.until(url_changes(initial_url))
+                new_url = driver.current_url
+                print(f"Mix is in the queue. Assigned URL: {new_url} \n")
+                print("Please wait, this could take up to 15 minutes. \n")
+                wait = WebDriverWait(driver, TIME_OUT, poll_frequency=POLL_FREQ)
+                wait.until(EC.presence_of_element_located((By.ID, 'ForegroundPlayer')))
+                print("Mash-up has been successfully processed!, Downloading Now...")
+                RaveDJ_Downloader.download_video(new_url)
+                break
 
-        try:
-            # Wait until processed
-            print("Please wait, this could take up to 15 minutes. \n")
-            wait = WebDriverWait(driver, TIME_OUT, poll_frequency= POLL_FREQ)  # Check every 5 second
-            foreground_player_element = wait.until(EC.presence_of_element_located((By.ID, 'ForegroundPlayer')))
-            print("Mash-up has been successfully processed!, Downloading Now...")
-            RaveDJ_Downloader.download_video(current_url)
+            except TimeoutException:
+                if driver.current_url == initial_url:
+                    print("Failed to add tracks to the queue. Retrying...")
+                    retries -= 1
+                else:
+                    print("Mash-up did not load within 15 minutes, saving Rave.DJ URL to text file.")
+                    with open('failed_urls.txt', 'a') as file:
+                        file.write(driver.current_url + '\n')
+                    break
 
-        except TimeoutException:
-            print("Mash-up did not load within 15 minutes, saving Rave.DJ URL to text file.")
-            with open('failed_urls.txt', 'a') as file:
-                file.write(current_url + '\n')
+        if retries == 0:
+            print(
+                "Failed to enter the queue after the retry. Website may be under serious load. Please try again some other time.")
 
     def close(self):
         self.driver.quit()
