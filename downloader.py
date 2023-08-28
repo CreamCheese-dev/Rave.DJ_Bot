@@ -10,8 +10,12 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.expected_conditions import url_changes
+
 
 # CONSTANTS
+ATTEMPTS = 1
+SHORT_TIME_OUT = 30
 TIME_OUT = 720
 POLL_FREQ = 5
 
@@ -24,16 +28,39 @@ class RaveDJ_Downloader:
 
     @staticmethod
     def is_valid_youtube_url(url):
-        # Matches both individual video links and links with playlist parameters
-        video_pattern = re.compile(r'^(https?://)?(www\.)?(youtube\.com|youtu\.?be)/watch\?v=[\w-]{11}.*')
+        '''
+        Checks whether the provided URL is a valid YouTube URL.
 
-        # Matches shortened video links
+        The method uses regex patterns to identify standard YouTube video links as well
+        as shortened "youtu.be" format links.
+
+        Parameters:
+        - url (str): The URL string to check.
+
+        Returns:
+        - bool: True if it's a valid YouTube link, otherwise False.
+        '''
+
+        video_pattern = re.compile(r'^(https?://)?(www\.)?(youtube\.com|youtu\.?be)/watch\?v=[\w-]{11}.*')
         shortened_video_pattern = re.compile(r'^(https?://)?(www\.)?youtu\.be/[\w-]{11}')
 
         return bool(video_pattern.match(url)) or bool(shortened_video_pattern.match(url))
 
     @staticmethod
     def is_valid_spotify_url(url):
+        '''
+        Determines if the provided URL is a valid Spotify link.
+
+        This method specifically checks for Spotify tracks, albums, and playlists
+        based on their unique URL format.
+
+        Parameters:
+        - url (str): The URL string to check.
+
+        Returns:
+        - bool: True if it's a valid Spotify link, otherwise False.
+        '''
+
         # This regex covers tracks, albums, and playlists only
         pattern = re.compile(r'^https://open\.spotify\.com/(track|album|playlist)/[a-zA-Z0-9]{22}$')
 
@@ -41,38 +68,91 @@ class RaveDJ_Downloader:
 
     @staticmethod
     def verify_links(url):
+        '''
+        Validates if the provided URL belongs to either YouTube or Spotify.
+
+        This method leverages two other static methods to verify the URL's
+        authenticity as a YouTube or Spotify link.
+
+        Parameters:
+        - url (str): The URL string to verify.
+
+        Returns:
+        - bool: True if the URL belongs to either Spotify or YouTube, otherwise False.
+        '''
+
         return RaveDJ_Downloader.is_valid_spotify_url(url) or RaveDJ_Downloader.is_valid_youtube_url(url)
 
     @staticmethod
     def clean_url(url):
+        '''
+        Clean a YouTube URL by removing extraneous characters.
+
+        For YouTube links, this method extracts the main part of the video URL,
+        disregarding any additional parameters or fragments.
+        If the URL isn't a YouTube link, it returns the original URL.
+
+        Parameters:
+        - url (str): The URL string to clean.
+
+        Returns:
+        - str: A cleaned YouTube URL or the original URL if not a YouTube link.
+        '''
+
         if "youtube" in url:
             match = re.match(r'(https://www\.youtube\.com/watch\?v=[\w-]{11})', url)
             if match:
                 return match.group(1)
+
         return url
 
     @staticmethod
     def download_video(url):
-        # Split the URL and extract the necessary part
+        """
+        Downloads a video from a given URL.
+
+        This method takes a URL as an argument and performs the following steps:
+        1. Splits the URL and extracts the relevant portion to construct the real API URL.
+        2. Makes multiple attempts (up to a maximum limit) to fetch video data from the constructed API URL.
+        3. If a valid video URL is found in the response, it breaks out of the loop.
+        4. Downloads the video from the found URL.
+        5. Saves the video as an MP4 file, ensuring it doesn't overwrite any existing file by appending a number if needed.
+
+        Parameters:
+            - url (str): The input URL from which video needs to be downloaded.
+
+        Prints:
+            - Information about the status of download and errors if any.
+            - The final video download URL.
+            - Success message once the video is downloaded.
+        """
+
         url_parts = url.split("/")
-        # Create the real URL to call the API
         real_url = f"https://api.red.wemesh.ca/mashups/{url_parts[3]}"
 
-        # Make a GET request to the API
-        response = requests.get(real_url)
-        response_json = response.json()
+        attempts = 0
+        max_attempts = 5  # Set a limit to the number of attempts
+        video_url = None
 
-        # Check if the video URL is present
-        video_url = response_json['data']['videos'].get('max')
+        while attempts < max_attempts:
+            response = requests.get(real_url)
+            response_json = response.json()
+
+            if 'data' in response_json and 'videos' in response_json['data']:
+                video_url = response_json['data']['videos'].get('max')
+                if video_url:
+                    break
+
+            else:
+                print("Data not yet available. Waiting...")
+                time.sleep(5)  # Wait for 5 seconds before next attempt
+                attempts += 1
+
         if video_url is None:
-            print("Wait for the video to finish!")
-            return
+            print("Failed to retrieve video URL after multiple attempts. Exiting.")
 
         print(f"MP4 URL: {video_url}")
-
-        # Download the video
         video_response = requests.get(video_url)
-
         filename_base = "video"
         filename_ext = ".mp4"
         counter = 1
@@ -90,10 +170,21 @@ class RaveDJ_Downloader:
     # --------------------- SITE INTERACTION METHODS ---------------------
 
     def get_site(self):
+        '''
+        Opens the Rave DJ mix creation page using the associated web driver.
+        '''
+
         driver = self.driver
         driver.get('https://rave.dj/mix')
 
     def check_cookies(self):
+        '''
+        Checks and accepts cookies on the webpage for seamless operation.
+
+        If a cookie acceptance popup appears on the website, this method will locate
+        the 'Accept' button and click on it to proceed.
+        '''
+
         driver = self.driver
 
         try:
@@ -107,6 +198,11 @@ class RaveDJ_Downloader:
             return
 
     def spotify_tab(self):
+        '''
+        Opens a new browser tab, navigates to the Spotify login page,
+        and then switches control back to the original tab.
+        '''
+
         driver = self.driver
 
         original_tab_handle = driver.current_window_handle
@@ -120,6 +216,15 @@ class RaveDJ_Downloader:
         driver.switch_to.window(original_tab_handle)
 
     def grab_urls(self):
+        '''
+        Processes .txt files in the current directory for song URLs.
+
+        This method reads URLs from the text files, validates them, and handles them
+        accordingly. Valid YouTube and Spotify URLs are added to the tracklist for
+        mashup creation, while Rave.DJ URLs are directly processed for downloading.
+
+        Prompts the user to decide between two-song mashups or playlist mashups.
+        '''
 
         print("Two song Mash-Up or Playlist? \n")
         type_of_mashup = input("Enter the character 'S' or 'P'. \n")
@@ -144,9 +249,9 @@ class RaveDJ_Downloader:
                     if "rave.dj" in clean_url:
                         try:
                             self.download_video(clean_url)
-                        except Exception:
+                        except Exception as e:
                             print(
-                                f"Error: Could not download the song from the URL {clean_url}. The song might not have been processed.")
+                                f"Error: Could not download the song from the URL {clean_url}. The song might not have been processed. Reason: {e} \n")
                     elif self.verify_links(clean_url):
                         track = self.clean_url(clean_url)
                         self.paste_tracks(track)
@@ -177,6 +282,13 @@ class RaveDJ_Downloader:
         self.close()
 
     def paste_tracks(self, url):
+        '''
+        Pastes a validated song URL into the Rave DJ search bar and waits for the
+        track to be added to the tracklist.
+
+        If the track is successfully added, the method prints a confirmation,
+        otherwise, it reports a failure.
+        '''
 
         driver = self.driver
 
@@ -198,7 +310,6 @@ class RaveDJ_Downloader:
                 lambda d: len(d.find_elements(By.XPATH, "//div[contains(@class, 'track-title')]")) > initial_track_count
             )
 
-            # Check the total number of tracks now
             total_tracks = driver.find_elements(By.XPATH, "//div[contains(@class, 'track-title')]")
             new_track_count = len(total_tracks)
 
@@ -212,32 +323,51 @@ class RaveDJ_Downloader:
             print(f"Track was not detected in the tracklist from URL: {url}. Error message: {str(e)}")
 
     def process_mix(self):
+        '''
+        Initiates the creation of a mash-up on Rave DJ with the selected tracks.
+
+        Once tracks are added to the tracklist, this method will attempt to create
+        the mashup. If successful, it will download the created mashup, otherwise, it
+        will save the Rave.DJ URL to a text file for potential later review or retry.
+        '''
 
         driver = self.driver
+        initial_url = driver.current_url
+        retries = ATTEMPTS  # Number of attempts
 
-        # Process Mash-Up
-        create_btn_css_selector = "button.mix-button.mix-floating-footer.pulsing-glow"
-        create_btn = driver.find_element(By.CSS_SELECTOR, create_btn_css_selector)
-        create_btn.click()
-        print("Mix is entering the queue. \n")
+        while retries >= 0:
+            # Process Mash-Up
+            create_btn_css_selector = "button.mix-button.mix-floating-footer.pulsing-glow"
+            create_btn = driver.find_element(By.CSS_SELECTOR, create_btn_css_selector)
+            create_btn.click()
 
-        # Wait till url updated
-        time.sleep(3)
-        current_url = driver.current_url
+            try:
+                # Wait until URL changes
+                wait = WebDriverWait(driver, SHORT_TIME_OUT)
+                wait.until(url_changes(initial_url))
+                new_url = driver.current_url
+                print(f"Mix is in the queue. Assigned URL: {new_url} \n")
+                print("Please wait, this could take up to 15 minutes. \n")
+                wait = WebDriverWait(driver, TIME_OUT, poll_frequency=POLL_FREQ)
+                wait.until(EC.presence_of_element_located((By.ID, 'ForegroundPlayer')))
+                print("Mash-up has been successfully processed!, Downloading Now...")
+                RaveDJ_Downloader.download_video(new_url)
+                break
 
-        try:
-            # Wait until processed
-            print("Please wait, this could take up to 15 minutes. \n")
-            wait = WebDriverWait(driver, TIME_OUT, poll_frequency= POLL_FREQ)  # Check every 5 second
-            foreground_player_element = wait.until(EC.presence_of_element_located((By.ID, 'ForegroundPlayer')))
-            print("Mash-up has been successfully processed!, Downloading Now...")
-            RaveDJ_Downloader.download_video(current_url)
-
-        except TimeoutException:
-            print("Mash-up did not load within 15 minutes, saving Rave.DJ URL to text file.")
-            with open('failed_urls.txt', 'a') as file:
-                file.write(current_url + '\n')
+            except TimeoutException:
+                if driver.current_url == initial_url:
+                    print(f"Failed to add tracks to the queue. Retry attempts left: {retries}")
+                    retries -= 1
+                else:
+                    print("Mash-up did not load within 15 minutes, saving Rave.DJ URL to text file.")
+                    with open('failed_urls.txt', 'a') as file:
+                        file.write(driver.current_url + '\n')
+                    break
 
     def close(self):
+        '''
+        Shuts down the associated web driver and terminates the script.
+        '''
+
         self.driver.quit()
         sys.exit()
